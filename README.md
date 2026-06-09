@@ -86,7 +86,7 @@ Backbone: **Pi0.5 + task embeddings (no language model)**.
 | Action space             | Δ-action (per-timestep normalized), 30-step horizon |
 | Training scale           | All 50 tasks jointly, then split into 4 task-specific checkpoints |
 
-Our adapted checkpoints (Pi0.5 backbone + RFT post-training) are released on HuggingFace: [`Shawn3636/pi05-rft-behavior1k`](https://huggingface.co/Shawn3636/pi05-rft-behavior1k).
+The Pi0.5 backbone is split into four task-specialised checkpoints:
 
 | Checkpoint | # Tasks | Task IDs |
 |-----------|--------:|----------|
@@ -94,6 +94,8 @@ Our adapted checkpoints (Pi0.5 backbone + RFT post-training) are released on Hug
 | `checkpoint_2` | 16 | **0, 1, 7, 8, 9, 12, 16, 17, 18, 20, 21, 22, 26, 30, 43, 45** |
 | `checkpoint_3` | 13 | 4, 27, 31–33, 35–39, 41, 46, 49 |
 | `checkpoint_4` | 1  | 40 |
+
+Our released fine-tune — [`Shawn3636/pi05-rft-behavior1k`](https://huggingface.co/Shawn3636/pi05-rft-behavior1k) — specialises `checkpoint_2` further for tasks **1 / 7 / 18 / 21** (`picking_up_trash`, `picking_up_toys`, `tidying_bedroom`, `collecting_childrens_toys`). It continues training from the base checkpoint on **800 human-demonstration episodes** (200 per task; ~10.9 M frames ≈ **100 h** of head-camera teleoperation at 30 fps), with the PaliGemma LLM and vision backbones frozen (10 k steps, batch 8, cosine LR 5e-5 → 5e-6). The RFT loop described below is the project's additional post-training exploration; the [model card](https://huggingface.co/Shawn3636/pi05-rft-behavior1k) has the full data + training breakdown.
 
 ### Post-training: RFT (Rejection-sampling Fine-Tuning) — from 2nd place (Comet)
 
@@ -218,7 +220,7 @@ uv run python -c "import openpi, jax; print(jax.devices())"
 |---|---|
 | OmniGibson scenes + challenge instances | [`behavior-1k/2025-challenge-demos`](https://huggingface.co/datasets/behavior-1k/2025-challenge-demos) |
 | LeRobot training dataset (224 × 224)    | [`IliaLarchenko/behavior_224_rgb`](https://huggingface.co/datasets/IliaLarchenko/behavior_224_rgb) |
-| Our checkpoints (Pi0.5 + RFT)           | [`Shawn3636/pi05-rft-behavior1k`](https://huggingface.co/Shawn3636/pi05-rft-behavior1k) |
+| Our fine-tune (Pi0.5, tasks 1/7/18/21)  | [`Shawn3636/pi05-rft-behavior1k`](https://huggingface.co/Shawn3636/pi05-rft-behavior1k) |
 | Normalisation stats (per checkpoint)    | shipped with each checkpoint |
 
 Set this exact environment variable before any evaluation:
