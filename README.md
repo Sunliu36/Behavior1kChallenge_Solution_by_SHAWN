@@ -1,13 +1,13 @@
-# BEHAVIOR-1K Challenge — 1st-place Backbone × 2nd-place RFT
+# BEHAVIOR-1K Challenge — Stage-Aware Pi0.5 VLA with Rejection-Sampling Fine-Tuning
 
-> A hybrid solution for the [2025 BEHAVIOR Challenge (NeurIPS 2025)](https://behavior.stanford.edu/challenge/) combining the **1st-place pre-trained backbone** (Pi0.5-based VLA from *Robot Learning Collective / IliaLarchenko*) with the **2nd-place post-training method** (RFT with stage-guided pose perturbation from *Comet / NVIDIA Research*).
+> Our vision-language-action solution for the [2025 BEHAVIOR Challenge (NeurIPS 2025)](https://behavior.stanford.edu/challenge/): a **stage-aware Pi0.5 policy** adapted to long-horizon household tasks and hardened with **rejection-sampling fine-tuning** on stage-guided, pose-perturbed rollouts. Built on the open-source Pi0.5 backbone and the Comet RFT recipe — full credit in [Acknowledgments](#acknowledgments-and-references).
 
 [![Technical Report](https://img.shields.io/badge/📄_Technical_Report-PDF-red)](assets/Shao-Yang_Liu_BEHAVIOR-1K_VLA_Adaptation.pdf)
 [![Eval Videos](https://img.shields.io/badge/🤗_Eval_Videos-results-green)](https://huggingface.co/datasets/MLfinal/behavior-1k-group29/tree/main/eval_results)
 [![Sibling Repo](https://img.shields.io/badge/Sibling_Repo-PCD--SFT_minor_method-blue?logo=github)](https://github.com/Sunliu36/Behavior1KChallenge_minor_Solution_by_SHAWN)
 [![License](https://img.shields.io/badge/License-Apache_2.0-lightgrey)](LICENSE)
 
-> A 1st-place-backbone, 2nd-place-RFT solution for BEHAVIOR-1K 2025 household tasks.
+> A reproducible recipe for long-horizon BEHAVIOR-1K household manipulation — Pi0.5 + rejection-sampling fine-tuning.
 
 ![Leaderboard comparison](assets/leaderboard.png)
 
@@ -43,7 +43,7 @@ Evaluated on the official challenge test instances of 6 representative tasks:
 
 ### Sibling method — point-cloud SFT branch (minor method)
 
-Besides this main solution (1st-place backbone × 2nd-place RFT), we also explored a
+Besides this main solution (Pi0.5 + RFT), we also explored a
 **point-cloud-augmented supervised fine-tuning** branch built on Pi0.5 — the
 second-checkpoint + point-cloud branch analysed in §6.1 of the technical report. Its
 code, model, and eval videos live in a separate repository:
@@ -57,14 +57,14 @@ code, model, and eval videos live in a separate repository:
 
 ---
 
-## Why this combination wins
+## Why it works
 
-**Best of both worlds:**
+**A strong backbone, made robust:**
 
-* The **1st-place backbone** gives a strong starting policy: a Pi0.5 VLA fine-tuned on the full challenge dataset with FAST tokenization, task embeddings (replacing the language model), correlation-aware flow-matching noise, and stage prediction. We use their four released checkpoints as the inference policy and the seed for further training.
-* The **2nd-place post-training (RFT)** closes the sim-to-eval gap that hurts the 1st-place model on out-of-distribution initial conditions. The training loop perturbs the robot root pose, rolls out the current policy, scores trajectories with the simulator's reward signal, and continues training only on the successful rollouts (rejection sampling fine-tuning).
+* The **Pi0.5 backbone** gives a strong starting policy: a Pi0.5 VLA fine-tuned on the full challenge dataset with FAST tokenization, task embeddings (replacing the language model), correlation-aware flow-matching noise, and stage prediction. We start from its released checkpoints and use them as both the inference policy and the seed for further training.
+* Our **RFT post-training** closes the sim-to-eval gap that hurts the base model on out-of-distribution initial conditions. The training loop perturbs the robot root pose, rolls out the current policy, scores trajectories with the simulator's reward signal, and continues training only on the successful rollouts (rejection sampling fine-tuning).
 
-The result is a policy that retains the 1st-place model's strong action distribution while becoming substantially more robust on each target task.
+The result is a policy that retains the backbone's strong action distribution while becoming substantially more robust on each target task.
 
 ![Method diagram](assets/method_diagram.png)
 
@@ -72,7 +72,7 @@ The result is a policy that retains the 1st-place model's strong action distribu
 
 ## Method Overview
 
-### Pre-training (from 1st place — IliaLarchenko's *behavior_submission*)
+### Pre-training (Pi0.5 VLA backbone)
 
 Backbone: **Pi0.5 + task embeddings (no language model)**.
 
@@ -86,7 +86,7 @@ Backbone: **Pi0.5 + task embeddings (no language model)**.
 | Action space             | Δ-action (per-timestep normalized), 30-step horizon |
 | Training scale           | All 50 tasks jointly, then split into 4 task-specific checkpoints |
 
-Pre-trained checkpoints are loaded from HuggingFace: [`IliaLarchenko/behavior_submission`](https://huggingface.co/IliaLarchenko/behavior_submission).
+Our adapted checkpoints (Pi0.5 backbone + RFT post-training) are released on HuggingFace: [`Shawn3636/pi05-rft-behavior1k`](https://huggingface.co/Shawn3636/pi05-rft-behavior1k).
 
 | Checkpoint | # Tasks | Task IDs |
 |-----------|--------:|----------|
@@ -97,15 +97,15 @@ Pre-trained checkpoints are loaded from HuggingFace: [`IliaLarchenko/behavior_su
 
 ### Post-training: RFT (Rejection-sampling Fine-Tuning) — from 2nd place (Comet)
 
-We adopt Comet's *stage-guided pose perturbation* + RFT loop and apply it on top of each 1st-place checkpoint.
+We adopt Comet's *stage-guided pose perturbation* + RFT loop and apply it on top of each Pi0.5 backbone checkpoint.
 
 1. **Rollout collection.** For each target task, sample `N` task instances from the **training** pool (200 per task). For each instance, perturb the robot root pose by a uniformly sampled `(Δx, Δy, Δθ)` with `Δx, Δy ∈ [−0.15 m, +0.15 m]` and `Δθ ∈ [−π/12, +π/12]`, then run the policy to completion.
 2. **Filtering.** Keep rollouts with `q_score ≥ threshold` (typically `0.667`, i.e. the task was substantially completed). Failed trajectories are discarded.
 3. **Conversion.** Convert each kept rollout into a LeRobot episode (`observation.state` proprio, `observation.cam_rel_poses`, `action`, plus per-camera mp4) and append to the task's training shard.
-4. **Fine-tuning.** Resume training from the 1st-place checkpoint with the RFT episodes mixed in, for 1500–3000 additional steps, with frozen PaliGemma LLM backbone to keep training light.
+4. **Fine-tuning.** Resume training from the backbone checkpoint with the RFT episodes mixed in, for 1500–3000 additional steps, with frozen PaliGemma LLM backbone to keep training light.
 5. **Re-evaluate** on the test instances and iterate if needed.
 
-### Inference (from 1st place)
+### Inference
 
 * **Multi-step flow matching.** 15 action-expert predictions (different time + noise) per VLM forward pass to reduce variance.
 * **Tail-Head overlap (rolling inpainting).** Predict 30 actions, execute 26, keep 4 as the conditioning prefix for the next chunk. The first 70 % of denoising steps inpaint these 4 actions softly, with the remaining 26 guided toward a linear-regression extrapolation.
@@ -121,7 +121,7 @@ B1K_1st_with_2nd/
 ├── README.md                        # ← you are here
 ├── PROJECT_STATUS.md                # detailed engineering log
 ├── assets/                          # README images
-├── behavior-1k-solution/            # 1st-place repo (fork w/ patches)
+├── behavior-1k-solution/            # Pi0.5 backbone repo (fork w/ patches)
 │   ├── scripts/
 │   │   ├── serve_b1k.py             # policy WebSocket server
 │   │   ├── train.py                 # bf16-patched training entry
@@ -214,12 +214,12 @@ uv run python -c "import openpi, jax; print(jax.devices())"
 
 ### Datasets and assets
 
-| Asset | Path on this machine | Source |
-|---|---|---|
-| OmniGibson scenes + challenge instances | `/media/public_dataset2/behavior-1k/omnigibson_data` | [`behavior-1k/2025-challenge-demos`](https://huggingface.co/datasets/behavior-1k/2025-challenge-demos) |
-| LeRobot training dataset (224 × 224)    | `/media/ML_2025/shawn/b1k/data/behavior_224_rgb`     | [`IliaLarchenko/behavior_224_rgb`](https://huggingface.co/datasets/IliaLarchenko/behavior_224_rgb) |
-| Pre-trained checkpoints (1st place)     | `/media/ML_2025/shawn/b1k/checkpoints/checkpoint_{1,2,3,4}` | [`IliaLarchenko/behavior_submission`](https://huggingface.co/IliaLarchenko/behavior_submission) |
-| Normalisation stats (per checkpoint)    | `<ckpt>/assets/IliaLarchenko/behavior_224_rgb/`     | shipped with each checkpoint |
+| Asset | Source |
+|---|---|
+| OmniGibson scenes + challenge instances | [`behavior-1k/2025-challenge-demos`](https://huggingface.co/datasets/behavior-1k/2025-challenge-demos) |
+| LeRobot training dataset (224 × 224)    | [`IliaLarchenko/behavior_224_rgb`](https://huggingface.co/datasets/IliaLarchenko/behavior_224_rgb) |
+| Our checkpoints (Pi0.5 + RFT)           | [`Shawn3636/pi05-rft-behavior1k`](https://huggingface.co/Shawn3636/pi05-rft-behavior1k) |
+| Normalisation stats (per checkpoint)    | shipped with each checkpoint |
 
 Set this exact environment variable before any evaluation:
 
@@ -342,7 +342,7 @@ python3 /media/Pluto/.../rft/build_rft_lerobot.py \
 
 This produces a standalone LeRobot dataset (`data/task-0001/episode_*.parquet`, `videos/...`, `meta/{info,episodes,episodes_stats,tasks}.jsonl`) that `train.py` can load directly.
 
-### 3. Fine-tune from the 1st-place checkpoint
+### 3. Fine-tune from the backbone checkpoint
 
 ```bash
 bash /media/Pluto/.../rft/train_rft.sh \
@@ -394,7 +394,7 @@ Wait for the line `INFO:websockets.server:server listening on 0.0.0.0:8000` (col
 
 ### 2. Run evaluation inside a container
 
-Stock single-server / no perturbation (matches the upstream 1st-place evaluator):
+Stock single-server / no perturbation (matches the upstream evaluator):
 
 ```bash
 docker exec -d b1k_eval_g0 bash -c '
@@ -450,10 +450,10 @@ bash setup_remote.sh                          # host deps (uv venv)
 docker pull nvcr.io/nvidia/isaac-sim:4.5.0    # eval container base
 
 # 1. Download pre-trained checkpoints
-huggingface-cli download IliaLarchenko/behavior_submission \
+huggingface-cli download Shawn3636/pi05-rft-behavior1k \
     --local-dir /media/ML_2025/shawn/b1k/checkpoints
 
-# 2. Start the policy server (uses 1st-place ckpt2 by default)
+# 2. Start the policy server (uses base ckpt2 by default)
 bash script/run_baseline_eval.sh              # also starts server
 
 # 3. Run the RFT pipeline for each target task
