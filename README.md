@@ -150,7 +150,7 @@ B1K_1st_with_2nd/
     └── run_*.sh                     # eval helpers
 ```
 
-The four RFT helpers live under [`/media/Pluto/Shawn/NTHU_Course_1142/b1k/rft/`](file:///media/Pluto/Shawn/NTHU_Course_1142/b1k/rft):
+The four RFT helpers live under `$WORK/rft/`:
 
 ```
 rft/
@@ -167,6 +167,17 @@ rft/
 ---
 
 ## Build Environment
+
+### Path conventions
+
+The commands below use these placeholders — point them at your own locations:
+
+```bash
+export REPO=~/B1K_1st_with_2nd                 # this cloned repository
+export DATA=/path/to/datasets_and_checkpoints  # LeRobot data + checkpoints
+export WORK=/path/to/outputs                   # training/eval outputs, logs, RFT helpers
+export OG_DATA=$DATA/omnigibson_data           # OmniGibson scenes + challenge instances
+```
 
 ### Hardware
 
@@ -189,10 +200,7 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0
 
 # Long-running idle containers — one per evaluation GPU
 docker run -d --name b1k_eval_g0 --gpus all --network host \
-  -v /media/ML_2025:/media/ML_2025 \
-  -v /media/Pluto:/media/Pluto \
-  -v /media/public_dataset2:/media/public_dataset2 \
-  -v /media/extra_home:/media/extra_home \
+  -v "$REPO:$REPO" -v "$DATA:$DATA" -v "$WORK:$WORK" -v "$OG_DATA:$OG_DATA" \
   --entrypoint bash b1k_eval:installed -c "sleep infinity"
 
 # Same for b1k_eval_g1
@@ -227,80 +235,30 @@ uv run python -c "import openpi, jax; print(jax.devices())"
 Set this exact environment variable before any evaluation:
 
 ```bash
-export OMNIGIBSON_DATA_PATH=/media/public_dataset2/behavior-1k/omnigibson_data
-export OMNIGIBSON_APPDATA_PATH=/media/Pluto/Shawn/NTHU_Course_1142/b1k/outputs/og_appdata
+export OMNIGIBSON_DATA_PATH=$OG_DATA
+export OMNIGIBSON_APPDATA_PATH=$WORK/outputs/og_appdata
 ```
 
 ---
 
-## Gotcha: running on Blackwell GPUs (sm_120, e.g. RTX PRO 6000 / RTX 5090)
+## Gotcha: Blackwell GPUs (sm_120) render noisy images
 
-This stack was validated on **Ada (RTX 4090, `sm_89`)**. We first tried it on a
-**Blackwell** card (**RTX PRO 6000**, compute capability **`sm_120`**) and hit a wall:
-most pre-built CUDA wheels (PyTorch, JAX, flash-attn, etc.) predate `sm_120` and ship
-**no matching GPU binary**, so they either JIT-recompile slowly or fail outright.
+Validated on **Ada (RTX 4090, `sm_89`)**. On **Blackwell** (RTX PRO 6000 / 5090,
+`sm_120`) most pre-built CUDA wheels (PyTorch, JAX, flash-attn) predate `sm_120`, so their
+fat binaries carry no matching kernel. If a wheel also ships PTX the driver JIT-compiles it
+(slower first launch); otherwise you get `CUDA error: no kernel image is available` or a
+silent fallback.
 
-**Why a pre-built wheel may not run on `sm_120`.** A CUDA kernel reaches your GPU one of two ways:
+**The symptom that cost us Q-score:** OmniGibson / Isaac Sim renders the RGB cameras with
+RTX ray tracing + a denoiser. On `sm_120` that path degraded, so the `head` / `wrist`
+frames came out **heavily noisy** — no crash, but the VLA (trained on clean 224 × 224
+renders) sees static and **Q-scores silently collapse**. If frames look speckled, suspect
+the renderer, not the policy.
 
-* **Path A — compile from source on your machine.** `nvcc` is told your exact arch
-  (`sm_XX`) and emits a binary tailored to it. Always works for your card; the cost is
-  that every user needs a toolchain and a few minutes to build.
-* **Path B — the developer pre-compiles once and ships a wheel.** `nvcc` produces a
-  **fat binary** bundling kernels for several architectures at once, e.g.
-
-  ```
-  kernel.sm_70  (Volta)   kernel.sm_86  (RTX 3090)   kernel.sm_90  (H100)
-  kernel.sm_80  (A100)    kernel.sm_89  (RTX 4090)   ...
-  ```
-
-  That wheel goes to PyPI; you `pip install` and run immediately — **but only if your
-  arch is in the bundle**.
-
-At runtime the framework looks up the kernel for your GPU. On `sm_120` it searches the
-fat binary, finds **no `sm_120` slot** (the wheel was built before Blackwell existed),
-and falls back:
-
-1. **if the wheel also embeds PTX** (a forward-compatible virtual ISA), the driver
-   **JIT-compiles PTX → `sm_120`** at load time and runs — correct, just slower on the
-   first launch;
-2. **if there is no PTX either**, it cannot run: you get `CUDA error: no kernel image is
-   available for execution on the device`, a silent CPU fallback, or wrong results.
-
-> **Analogy.** Pre-built wheels are off-the-rack clothes in S/M/L/XL/XXL. Your size is
-> XXXL (`sm_120`) — not on the shelf. The only rescue is *stretchy fabric* (PTX) tailored
-> on the spot; if the fit is off, you get silent problems.
-
-**Practical fixes**
-
-* Install a build that **explicitly targets `sm_120`** (CUDA **12.8+** / recent PyTorch &
-  JAX nightlies) so a real `sm_120` binary — or at least `sm_90+PTX` — is present.
-* For any source-built extension, export the arch before building so `nvcc` emits Blackwell
-  code (with a PTX fallback):
-
-  ```bash
-  export TORCH_CUDA_ARCH_LIST="12.0+PTX"   # or "9.0+PTX" as a forward-compatible fallback
-  ```
-* Keep the **NVIDIA driver new enough for Blackwell** — the PTX-JIT path only works if the
-  driver already knows `sm_120`.
-* Verify at runtime:
-
-  ```bash
-  python -c "import torch; print(torch.cuda.get_device_capability())"   # expect (12, 0)
-  python -c "import torch; torch.zeros(1, device='cuda')"               # must not raise 'no kernel image'
-  ```
-
-**The symptom that actually cost us Q-score: noisy camera renders.** OmniGibson /
-Isaac Sim draws the robot's RGB cameras with **RTX ray tracing + a real-time denoiser**.
-On `sm_120` the ray-tracing / denoising kernels had no matching binary and degraded to the
-JIT / fallback path, so the rendered `head` and `wrist` images came out **heavily grained
-and noisy** instead of clean. This is the worst kind of failure here: **the simulator does
-not crash** — it runs, writes video, and reports numbers — but the VLA was trained on clean
-224 × 224 renders, so noisy input is a silent distribution shift that the policy has never
-seen. The model effectively looks at static, mis-grasps, and **Q-scores collapse for no
-obvious reason**. If your rollouts look fine in logs but the camera frames are speckled,
-suspect the renderer, not the policy. Moving evaluation back to **Ada (RTX 4090) / Hopper**
-restored clean renders and normal scores; a Blackwell build only became usable once the
-RTX/denoiser stack shipped real `sm_120` kernels.
+**Fixes:** use a CUDA **12.8+** / nightly build that targets `sm_120`; for source builds set
+`TORCH_CUDA_ARCH_LIST="12.0+PTX"`; keep the driver new enough; check
+`python -c "import torch; print(torch.cuda.get_device_capability())"` returns `(12, 0)`.
+Falling back to Ada / Hopper also restores clean renders.
 
 ---
 
@@ -311,7 +269,7 @@ RTX/denoiser stack shipped real `sm_120` kernels.
 The full loop is one shell command:
 
 ```bash
-bash /media/Pluto/Shawn/NTHU_Course_1142/b1k/rft/run_rft_orchestrator.sh
+bash $WORK/rft/run_rft_orchestrator.sh
 ```
 
 It runs the four steps below sequentially. Each step can also be invoked on its own.
@@ -319,8 +277,8 @@ It runs the four steps below sequentially. Each step can also be invoked on its 
 ### 1. Collect rollouts with pose perturbation
 
 ```bash
-bash /media/Pluto/.../rft/launch_rollout.sh b1k_eval_g0 0 13   # train indices 0–12
-bash /media/Pluto/.../rft/launch_rollout.sh b1k_eval_g1 13 25  # train indices 13–24
+bash $WORK/rft/launch_rollout.sh b1k_eval_g0 0 13   # train indices 0–12
+bash $WORK/rft/launch_rollout.sh b1k_eval_g1 13 25  # train indices 13–24
 ```
 
 Outputs:
@@ -335,12 +293,12 @@ rft/task1/
 ### 2. Filter and convert to LeRobot
 
 ```bash
-python3 /media/Pluto/.../rft/build_rft_lerobot.py \
-    --rft-dir /media/Pluto/.../rft/task1 \
+python3 $WORK/rft/build_rft_lerobot.py \
+    --rft-dir $WORK/rft/task1 \
     --task-name picking_up_trash --task-idx 1 \
     --threshold 0.667 \
-    --expert-root /media/ML_2025/shawn/b1k/data/behavior_224_rgb \
-    --out-root /media/Pluto/.../rft_data/task1_lerobot
+    --expert-root $DATA/data/behavior_224_rgb \
+    --out-root $WORK/rft_data/task1_lerobot
 ```
 
 This produces a standalone LeRobot dataset (`data/task-0001/episode_*.parquet`, `videos/...`, `meta/{info,episodes,episodes_stats,tasks}.jsonl`) that `train.py` can load directly.
@@ -348,8 +306,8 @@ This produces a standalone LeRobot dataset (`data/task-0001/episode_*.parquet`, 
 ### 3. Fine-tune from the backbone checkpoint
 
 ```bash
-bash /media/Pluto/.../rft/train_rft.sh \
-    /media/Pluto/.../rft_data/task1_lerobot \
+bash $WORK/rft/train_rft.sh \
+    $WORK/rft_data/task1_lerobot \
     rft_task1_$(date +%H%M) \
     1500          # num_train_steps
 ```
@@ -369,8 +327,8 @@ Configuration knobs live in [`behavior-1k-solution/src/b1k/training/config.py`](
 ### 4. Evaluate the RFT checkpoint
 
 ```bash
-bash /media/Pluto/.../rft/eval_rft_ckpt.sh \
-    /media/Pluto/.../outputs/checkpoints/rft_task1/<exp>/<latest>/ 5
+bash $WORK/rft/eval_rft_ckpt.sh \
+    $WORK/outputs/checkpoints/rft_task1/<exp>/<latest>/ 5
 ```
 
 This kills the current server, re-points `task_checkpoint_mapping.json` at the new checkpoint, restarts the server on GPU 2, and launches a 5-instance evaluation in `b1k_eval_g0`.
@@ -390,7 +348,7 @@ uv run scripts/serve_b1k.py \
     --task-checkpoint-mapping task_checkpoint_mapping.json \
     policy:checkpoint \
     --policy.config pi_behavior_b1k_fast \
-    --policy.dir /media/ML_2025/shawn/b1k/checkpoints/checkpoint_2/checkpoint_2
+    --policy.dir $DATA/checkpoints/checkpoint_2/checkpoint_2
 ```
 
 Wait for the line `INFO:websockets.server:server listening on 0.0.0.0:8000` (cold start ~ 3 minutes). The server picks the right checkpoint per request using the `task_id` field of each observation.
@@ -401,15 +359,15 @@ Stock single-server / no perturbation (matches the upstream evaluator):
 
 ```bash
 docker exec -d b1k_eval_g0 bash -c '
-  cd /media/extra_home/.../behavior-1k-solution/BEHAVIOR-1K/OmniGibson
-  OMNIGIBSON_DATA_PATH=/media/public_dataset2/behavior-1k/omnigibson_data \
-  OMNIGIBSON_APPDATA_PATH=/media/Pluto/.../outputs/og_appdata \
+  cd $REPO/behavior-1k-solution/BEHAVIOR-1K/OmniGibson
+  OMNIGIBSON_DATA_PATH=$OG_DATA \
+  OMNIGIBSON_APPDATA_PATH=$WORK/outputs/og_appdata \
   OMNIGIBSON_GPU_ID=0 \
   /isaac-sim/python.sh -m omnigibson.learning.eval \
       policy=websocket task.name=picking_up_trash \
       eval_instance_ids="[0,1,2,3,4]" \
       model.host=localhost headless=true write_video=true \
-      log_path=/media/Pluto/.../rft/task1_eval
+      log_path=$WORK/rft/task1_eval
 '
 ```
 
@@ -417,9 +375,9 @@ Multi-rollout, with perturbation and `state_action.npz` recording (the path used
 
 ```bash
 docker exec -d b1k_eval_g0 bash -c '
-  cd /media/extra_home/.../behavior-1k-solution/BEHAVIOR-1K/OmniGibson
-  OMNIGIBSON_DATA_PATH=/media/public_dataset2/behavior-1k/omnigibson_data \
-  OMNIGIBSON_APPDATA_PATH=/media/Pluto/.../outputs/og_appdata \
+  cd $REPO/behavior-1k-solution/BEHAVIOR-1K/OmniGibson
+  OMNIGIBSON_DATA_PATH=$OG_DATA \
+  OMNIGIBSON_APPDATA_PATH=$WORK/outputs/og_appdata \
   OMNIGIBSON_GPU_ID=0 \
   /isaac-sim/python.sh -m omnigibson.learning.eval_custom \
       policy=websocket task.name=picking_up_trash \
@@ -427,7 +385,7 @@ docker exec -d b1k_eval_g0 bash -c '
       eval_instance_ids="[0,1,2,3,4,5,6,7]" \
       perturb_pose=true save_rollout=true \
       write_video=true headless=true \
-      log_path=/media/Pluto/.../rft/task1_rollouts
+      log_path=$WORK/rft/task1_rollouts
 '
 ```
 
@@ -436,9 +394,9 @@ Each `eval` process drives its own OmniGibson scene; GPU 0 and GPU 1 can run an 
 ### 3. Summarise
 
 ```bash
-python3 /media/Pluto/.../rft/summarize_q.py \
-    /media/Pluto/.../rft/task1_eval \
-    /media/Pluto/.../rft/task7_eval ...
+python3 $WORK/rft/summarize_q.py \
+    $WORK/rft/task1_eval \
+    $WORK/rft/task7_eval ...
 ```
 
 Per-instance JSONs land in `<log_path>/metrics/<task>_<instance>_<episode>.json` with `q_score.final`, `agent_distance`, `simulator_steps`, and `normalized_*` ratios against the human demonstration.
@@ -454,7 +412,7 @@ docker pull nvcr.io/nvidia/isaac-sim:4.5.0    # eval container base
 
 # 1. Download pre-trained checkpoints
 huggingface-cli download Shawn3636/pi05-rft-behavior1k \
-    --local-dir /media/ML_2025/shawn/b1k/checkpoints
+    --local-dir $DATA/checkpoints
 
 # 2. Start the policy server (uses base ckpt2 by default)
 bash script/run_baseline_eval.sh              # also starts server
