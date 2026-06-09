@@ -1,0 +1,361 @@
+diff --git a/BEHAVIOR-1K b/BEHAVIOR-1K
+--- a/BEHAVIOR-1K
++++ b/BEHAVIOR-1K
+@@ -1 +1 @@
+-Subproject commit 684a83050ddd398de231e6aa7fc605bc34458d4b
++Subproject commit 684a83050ddd398de231e6aa7fc605bc34458d4b-dirty
+diff --git a/scripts/serve_b1k.py b/scripts/serve_b1k.py
+index d72c4e4..31eefa9 100644
+--- a/scripts/serve_b1k.py
++++ b/scripts/serve_b1k.py
+@@ -78,7 +78,7 @@ class Args:
+     votes_to_promote: int = 2
+     time_threshold_inpaint: float = 0.3
+     num_steps: int = 20
+-    apply_eval_tricks: bool = True  # Enable correction rules and gripper variation checks
++    apply_eval_tricks: bool = True  # Mercury baseline used tricks=True (q=0.667 on task1). Temporarily on for tricks comparison test.
+     
+     # Multi-checkpoint support for PI_BEHAVIOR models (optional)
+     task_checkpoint_mapping: str | None = None  # Path to task-checkpoint mapping JSON file
+diff --git a/scripts/train.py b/scripts/train.py
+index fed64c4..9652d8f 100644
+--- a/scripts/train.py
++++ b/scripts/train.py
+@@ -168,7 +168,8 @@ def init_train_state(
+             model = nnx.merge(graphdef, state)
+ 
+         params = nnx.state(model)
+-        params = nnx_utils.state_map(params, config.freeze_filter, lambda p: p.replace(p.value.astype(jnp.bfloat16)))
++        # Convert ALL params to bfloat16 to fit training in 24GB GPU (frozen LLM + trainable params)
++        params = params.map(lambda k, v: v.replace(v.value.astype(jnp.bfloat16)))
+         return training_utils.TrainState(
+             step=0,
+             params=params,
+@@ -433,7 +434,13 @@ def main(config: _config.TrainConfig):
+             # Create a concise console log with main metrics
+             main_metrics = {k: v for k, v in reduced_info.items() 
+                           if "loss" in k or "accuracy" in k or k in ["grad_norm", "param_norm", "grad_norm_vlm", "grad_norm_action_expert"]}
+-            info_str = ", ".join(f"{k}={v:.4f}" for k, v in main_metrics.items())
++            parts = []
++            for k, v in main_metrics.items():
++                try:
++                    parts.append(f"{k}={float(v):.4f}")
++                except (TypeError, ValueError):
++                    parts.append(f"{k}={v}")
++            info_str = ", ".join(parts)
+             pbar.write(f"Step {step}: {info_str}")
+             wandb.log(reduced_info, step=step)
+             infos = []
+diff --git a/src/b1k/training/config.py b/src/b1k/training/config.py
+index 52dfb7d..491ed20 100644
+--- a/src/b1k/training/config.py
++++ b/src/b1k/training/config.py
+@@ -24,6 +24,7 @@ import openpi.policies.aloha_policy as aloha_policy
+ import openpi.policies.droid_policy as droid_policy
+ import openpi.policies.libero_policy as libero_policy
+ import openpi.shared.download as _download
++import openpi.shared.nnx_utils as nnx_utils
+ import openpi.training.droid_rlds_dataset as droid_rlds_dataset
+ import openpi.training.optimizer as _optimizer
+ import openpi.transforms as _transforms
+@@ -158,24 +159,35 @@ class LeRobotB1KDataConfig(DataConfigFactory):
+ 
+     action_sequence_keys: Sequence[str] = ("action",)
+     use_delta_joint_actions: bool = False
+-    
++
+     # FAST auxiliary tokenization (only for PI_BEHAVIOR with use_fast_auxiliary)
+     use_fast_tokenization: bool = False
+ 
++    # Optional task filter: only load these task names (None = load all available)
++    filter_task_names: tuple[str, ...] | None = None
++
++    # Optional camera filter: only load these cameras (None = all 3)
++    filter_cameras: tuple[str, ...] | None = None
++
+     @override
+     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+-        # Repack transforms for B1K observations
+-        repack_mapping = {
+-            "observation/egocentric_camera": "observation.images.rgb.head",
+-            "observation/wrist_image_left": "observation.images.rgb.left_wrist",
+-            "observation/wrist_image_right": "observation.images.rgb.right_wrist",
++        # Repack transforms — only include cameras that are actually loaded
++        _cams = set(self.filter_cameras) if self.filter_cameras is not None else {"head", "left_wrist", "right_wrist"}
++        repack_mapping = {}
++        if "head" in _cams:
++            repack_mapping["observation/egocentric_camera"] = "observation.images.rgb.head"
++        if "left_wrist" in _cams:
++            repack_mapping["observation/wrist_image_left"] = "observation.images.rgb.left_wrist"
++        if "right_wrist" in _cams:
++            repack_mapping["observation/wrist_image_right"] = "observation.images.rgb.right_wrist"
++        repack_mapping.update({
+             "observation/state": "observation.state",
+             "actions": "action",
+-            "task_index": "task_index",  # Always preserve task_index
+-            "timestamp": "timestamp",    # Preserve timestamp for subtask state computation
+-            "episode_index": "episode_index",  # Preserve episode_index for episode length lookup
+-            "index": "index",           # Preserve index
+-        }
++            "task_index": "task_index",
++            "timestamp": "timestamp",
++            "episode_index": "episode_index",
++            "index": "index",
++        })
+             
+         repack_transform = _transforms.Group(
+             inputs=[_transforms.RepackTransform(repack_mapping)]
+@@ -378,6 +390,149 @@ _CONFIGS = [
+     ),
+ ]
+ 
++NAS = "/media/ML_2025/shawn/b1k"
++PLUTO = "/media/Pluto/Shawn/NTHU_Course_1142/b1k"
++_DATA_ROOT = f"{NAS}/data/behavior_224_rgb"
++_CKPT_BASE  = f"{PLUTO}/outputs/checkpoints"   # 輸出到 Pluto
++_ASSET_BASE = f"{NAS}/outputs/assets"
++
++def _ft_model(use_fast=True):
++    return pi_behavior_config.PiBehaviorConfig(
++        action_horizon=30, action_dim=32,
++        use_correlated_noise=True, correlation_beta=0.5,
++        use_fast_auxiliary=use_fast, fast_loss_weight=0.05,
++        fast_encoded_dims="0:6,7:23", fast_vocab_size=1024,
++        max_fast_tokens=200, use_kv_transform=True,
++        use_knowledge_insulation=False, subtask_loss_weight=0.1,
++        freeze_vision_backbone=True,
++    )
++
++def _ft_data(filter_tasks=None, filter_cameras=None, episodes_index=None):
++    return LeRobotB1KDataConfig(
++        repo_id="IliaLarchenko/behavior_224_rgb",  # asset_id 推導用，不實際下載
++        base_config=DataConfig(
++            prompt_from_task=False,
++            behavior_dataset_root=_DATA_ROOT,
++            use_per_timestamp_norm=True,
++            asset_id="IliaLarchenko/behavior_224_rgb",  # 明確指定 assets 子目錄
++            episodes_index=episodes_index,  # None = all episodes; list of ints = positional indices per task
++        ),
++        use_delta_joint_actions=True,
++        use_fast_tokenization=True,
++        filter_task_names=tuple(filter_tasks) if filter_tasks is not None else None,
++        filter_cameras=tuple(filter_cameras) if filter_cameras is not None else None,
++    )
++
++def _ft_lr(steps):
++    return _optimizer.CosineDecaySchedule(
++        warmup_steps=200, peak_lr=5e-5,
++        decay_steps=steps, decay_lr=5e-6,
++    )
++
++# ── Fine-tune configs（從已訓練的 Checkpoint 繼續，針對 6 個 target task）────
++# 凍結 PaliGemma LLM backbone（`.*PaliGemma.llm.*`）以降低 GPU 記憶體需求：
++#   - 保留 task_embeddings, action_in/out_proj, gate_*, fusion_*, kv_transform 等 action-specific 參數可訓練
++#   - LLM 的 gating_einsum（18×2×2048×2048 float32）不再需要 optimizer state → 省 ~1.12GB/GPU
++_LLM_FREEZE = nnx_utils.PathRegex(".*PaliGemma.llm.*")
++
++_CONFIGS += [
++    # ── RFT Task 1 Only（picking_up_trash）──────────────────────────────
++    # comet RFT 方法：只針對 task 1 fine-tune，batch=8 提速
++    # episodes.jsonl 已過濾為 task 1 的 200 episodes
++    TrainConfig(
++        name="rft_task1_picking_up_trash",
++        exp_name="rft_task1",
++        project_name="B1K_RFT",
++        model=_ft_model(),
++        data=_ft_data(),
++        lr_schedule=_optimizer.CosineDecaySchedule(
++            warmup_steps=100, peak_lr=1e-4,
++            decay_steps=3000, decay_lr=1e-5,
++        ),
++        num_flow_samples=4,
++        freeze_filter=_LLM_FREEZE,
++        weight_loader=weight_loaders.PiBehaviorWeightLoader(
++            f"{NAS}/checkpoints/checkpoint_2/checkpoint_2/params"  # task1 特化 ckpt
++        ),
++        num_train_steps=3000,        # 200 episodes × ~15 steps/epoch ≈ 3000
++        assets_base_dir=_ASSET_BASE,
++        checkpoint_base_dir=_CKPT_BASE,
++        num_workers=4,
++        save_interval=500,
++        keep_period=1000,
++    ),
++    # Checkpoint 2：tasks 1,7,18,21（picking_up_trash/toys, tidying_bedroom, collecting_childrens_toys）
++    TrainConfig(
++        name="ft_ckpt2_tasks1_7_18_21",
++        exp_name="ft_ckpt2",
++        project_name="B1K_FT",
++        model=_ft_model(),
++        data=_ft_data(
++            filter_tasks=["picking_up_trash", "picking_up_toys", "tidying_bedroom", "collecting_childrens_toys"],
++            filter_cameras=["head"],
++        ),
++        lr_schedule=_ft_lr(10000),
++        batch_size=8,
++        num_flow_samples=2,
++        freeze_filter=_LLM_FREEZE,
++        weight_loader=weight_loaders.PiBehaviorWeightLoader(
++            f"{NAS}/checkpoints/checkpoint_2/checkpoint_2/params"
++        ),
++        num_train_steps=10000,
++        assets_base_dir=_ASSET_BASE,
++        checkpoint_base_dir=_CKPT_BASE,
++        num_workers=4,
++        save_interval=500,
++        keep_period=2000,
++    ),
++    # Checkpoint 3：task 27（sorting_household_items）
++    # Only 136/200 episodes have head camera videos; episodes_index=range(136) uses the valid ones
++    TrainConfig(
++        name="ft_ckpt3_task27",
++        exp_name="ft_ckpt3",
++        project_name="B1K_FT",
++        model=_ft_model(),
++        data=_ft_data(
++            filter_tasks=["sorting_household_items"],
++            filter_cameras=["head"],
++            episodes_index=list(range(136)),
++        ),
++        lr_schedule=_ft_lr(5000),
++        batch_size=8,
++        num_flow_samples=2,
++        freeze_filter=_LLM_FREEZE,
++        weight_loader=weight_loaders.PiBehaviorWeightLoader(
++            f"{NAS}/checkpoints/checkpoint_3/checkpoint_3/params"
++        ),
++        num_train_steps=5000,
++        assets_base_dir=_ASSET_BASE,
++        checkpoint_base_dir=_CKPT_BASE,
++        num_workers=4,
++        save_interval=500,
++        keep_period=2000,
++    ),
++    # Checkpoint 1：task 29（clean_up_your_desk）
++    TrainConfig(
++        name="ft_ckpt1_task29",
++        exp_name="ft_ckpt1",
++        project_name="B1K_FT",
++        model=_ft_model(),
++        data=_ft_data(),
++        lr_schedule=_ft_lr(5000),
++        num_flow_samples=4,
++        freeze_filter=_LLM_FREEZE,
++        weight_loader=weight_loaders.PiBehaviorWeightLoader(
++            f"{NAS}/checkpoints/checkpoint_1/checkpoint_1/params"
++        ),
++        num_train_steps=5000,
++        assets_base_dir=_ASSET_BASE,
++        checkpoint_base_dir=_CKPT_BASE,
++        num_workers=4,
++        save_interval=500,
++        keep_period=2000,
++    ),
++]
++
+ if len({config.name for config in _CONFIGS}) != len(_CONFIGS):
+     raise ValueError("Config names must be unique.")
+ _CONFIGS_DICT = {config.name: config for config in _CONFIGS}
+diff --git a/src/b1k/training/data_loader.py b/src/b1k/training/data_loader.py
+index 3dd8fb2..55a2fde 100644
+--- a/src/b1k/training/data_loader.py
++++ b/src/b1k/training/data_loader.py
+@@ -46,7 +46,7 @@ class DataLoaderImpl(DataLoader):
+             yield Observation.from_dict(batch), batch["actions"]
+ 
+ 
+-def create_behavior_dataset(data_config: _config.DataConfig, action_horizon: int, seed: int | None = None) -> Dataset:
++def create_behavior_dataset(data_config: _config.DataConfig, action_horizon: int, seed: int | None = None, task_names: list[str] | None = None, cameras: list[str] | None = None) -> Dataset:
+     """Create a BEHAVIOR-1K dataset for training.
+     
+     Uses OmniGibson's BehaviorLeRobotDataset for efficient loading of BEHAVIOR-1K data.
+@@ -118,10 +118,18 @@ def create_behavior_dataset(data_config: _config.DataConfig, action_horizon: int
+     "freeze_pies",
+     ]
+     
++    if task_names is not None:
++        tasks = [t for t in task_names if t in tasks]
++        logging.info(f"Filtered to {len(tasks)} tasks: {tasks}")
++
++    cameras_to_use = cameras if cameras is not None else ["head", "left_wrist", "right_wrist"]
++    logging.info(f"Using cameras: {cameras_to_use}")
++
+     dataset = BehaviorLeRobotDataset(
+         repo_id=data_config.repo_id,
+         root=data_config.behavior_dataset_root,
+         tasks=tasks,
++        cameras=cameras_to_use,
+         modalities=["rgb"],
+         local_only=True,
+         delta_timestamps={
+@@ -239,7 +247,13 @@ def create_behavior_data_loader(
+         seed = int(time.time() * 1000) % (2**32)
+         logging.info(f"Using random seed: {seed}")
+     
+-    dataset = create_behavior_dataset(data_config, action_horizon=config.model.action_horizon, seed=seed)
++    # Extract task/camera filters from the original data config (before create())
++    filter_task_names = getattr(config.data, 'filter_task_names', None)
++    filter_cameras = getattr(config.data, 'filter_cameras', None)
++    dataset = create_behavior_dataset(
++        data_config, action_horizon=config.model.action_horizon, seed=seed,
++        task_names=filter_task_names, cameras=list(filter_cameras) if filter_cameras else None
++    )
+     dataset = transform_dataset(dataset, data_config, skip_norm_stats=skip_norm_stats)
+ 
+     data_loader = TorchDataLoader(
+diff --git a/src/b1k/training/weight_loaders.py b/src/b1k/training/weight_loaders.py
+index ed3a614..c837a47 100644
+--- a/src/b1k/training/weight_loaders.py
++++ b/src/b1k/training/weight_loaders.py
+@@ -39,10 +39,15 @@ class PiBehaviorWeightLoader(WeightLoader):
+     def load(self, params: at.Params) -> at.Params:
+         # Load checkpoint
+         params_path = download.maybe_download(self.params_path)
+-        
+-        # Load directly with PyTreeCheckpointer (handles both old and new checkpoint formats)
+-        with ocp.PyTreeCheckpointer() as ckptr:
+-            restored = ckptr.restore(params_path)
++
++        # Use openpi's restore approach: restore as np.ndarray (no sharding needed)
++        # This handles checkpoints saved with 8-GPU FSDP on single/multi GPU setups.
++        import openpi.models.model as _openpi_model
++        loaded_params = _openpi_model.restore_params(params_path, restore_type=np.ndarray)
++
++        # restore_params already strips 'params' wrapper and 'value' suffixes.
++        # Wrap in a 'restored' dict for compatibility with the code below.
++        restored = loaded_params
+         
+         # Handle nested 'params' key (from some checkpoint formats)
+         if isinstance(restored, dict) and "params" in restored:
+diff --git a/task_checkpoint_mapping.json b/task_checkpoint_mapping.json
+index f40241f..055c1fa 100644
+--- a/task_checkpoint_mapping.json
++++ b/task_checkpoint_mapping.json
+@@ -1,20 +1,20 @@
+ {
+   "checkpoints": {
+     "checkpoint_4": {
+-      "path": "~/models/checkpoint_4",
++      "path": "/media/ML_2025/shawn/b1k/checkpoints/checkpoint_4/checkpoint_4",
+       "tasks": [40]
+     },
+     "checkpoint_3": {
+-      "path": "~/models/checkpoint_3",
+-      "tasks": [32,46,27,38,39,31, 35,37,33,4,36,49,41]
++      "path": "/media/ML_2025/shawn/b1k/checkpoints/checkpoint_3/checkpoint_3",
++      "tasks": [32, 46, 27, 38, 39, 31, 35, 37, 33, 4, 36, 49, 41]
+     },
+     "checkpoint_2": {
+-      "path": "~/models/checkpoint_2",
+-      "tasks": [1,45,0,16,12,9,18,20,21,22,30,7,8, 17, 26, 43]
++      "path": "/media/ML_2025/shawn/b1k/checkpoints/checkpoint_2/checkpoint_2",
++      "tasks": [1, 45, 0, 16, 12, 9, 18, 20, 21, 22, 30, 7, 8, 17, 26, 43]
+     },
+     "checkpoint_1": {
+-      "path": "~/models/checkpoint_1",
++      "path": "/media/ML_2025/shawn/b1k/checkpoints/checkpoint_1/checkpoint_1",
+       "tasks": [2, 3, 5, 6, 10, 11, 13, 14, 15, 19, 23, 24, 25, 28, 29, 34, 42, 44, 47, 48]
+     }
+   }
+-}
+\ No newline at end of file
++}

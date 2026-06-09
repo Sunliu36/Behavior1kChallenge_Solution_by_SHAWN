@@ -1,0 +1,105 @@
+# =============================================================================
+# B1K_1st_with_2nd — top-level .gitignore
+# =============================================================================
+# Strategy: this repo only holds orchestration scripts, the README, and a patch
+# capturing our changes to the IliaLarchenko/behavior-1k-solution fork.
+# The fork itself (10 GB with submodules) is NOT tracked; users clone it
+# separately and apply patches/behavior-1k-solution.patch.
+# =============================================================================
+
+# --- The IliaLarchenko fork itself: do not track (10 GB) ---------------------
+behavior-1k-solution/
+
+# --- Claude Code / editor workspace state ------------------------------------
+.claude/
+.vscode/
+.idea/
+.cursor/
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- uv / pip ----------------------------------------------------------------
+.uv/
+.uv-cache/
+
+# --- Outputs, logs, checkpoints, datasets ------------------------------------
+outputs/
+logs/
+checkpoints/
+data/
+rft_data/
+rft_output/
+ft_output/
+*.log
+*.pid
+*.tmp
+*.incomplete
+
+# --- Large binary artifacts --------------------------------------------------
+*.npz
+*.parquet
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# --- Videos / images we record per rollout -----------------------------------
+*.mp4
+*.mkv
+*.webm
+*.avi
+# Keep README assets
+!assets/*.png
+!assets/*.jpg
+!assets/*.jpeg
+!assets/*.svg
+
+# --- PDFs --------------------------------------------------------------------
+*.pdf
+# Only ship the final, properly-attributed report
+!assets/Shao-Yang_Liu_BEHAVIOR-1K_VLA_Adaptation.pdf
+
+# --- Hugging Face / model caches ---------------------------------------------
+.cache/
+hf_cache/
+huggingface/
+~/.cache/
+
+# --- Secrets / credentials ---------------------------------------------------
+*.env
+.env.*
+.envrc
+.netrc
+credentials*
+*token*
+!*train_fast_tokenizer*
+!*tokenizer_config*
+!*tokenizer.json
+*.pem
+*_secret*
+id_rsa*
+*.key
+
+# --- OS junk -----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*~
+
+# --- Backup files we keep locally only ---------------------------------------
+*.bak
+*.bak2
+*.bak_*
