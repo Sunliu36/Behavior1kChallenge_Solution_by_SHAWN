@@ -3,6 +3,7 @@
 > Our vision-language-action solution for the [2025 BEHAVIOR Challenge (NeurIPS 2025)](https://behavior.stanford.edu/challenge/): a **stage-aware Pi0.5 policy** adapted to long-horizon household tasks and hardened with **rejection-sampling fine-tuning** on stage-guided, pose-perturbed rollouts. Built on the open-source Pi0.5 backbone and the Comet RFT recipe — full credit in [Acknowledgments](#acknowledgments-and-references).
 
 [![Technical Report](https://img.shields.io/badge/📄_Technical_Report-PDF-red)](assets/Shao-Yang_Liu_BEHAVIOR-1K_VLA_Adaptation.pdf)
+[![Checkpoint](https://img.shields.io/badge/🤗_Checkpoint-pi05--rft--behavior1k-yellow)](https://huggingface.co/Shawn3636/pi05-rft-behavior1k)
 [![Eval Videos](https://img.shields.io/badge/🤗_Eval_Videos-results-green)](https://huggingface.co/datasets/MLfinal/behavior-1k-group29/tree/main/eval_results)
 [![Sibling Repo](https://img.shields.io/badge/Sibling_Repo-PCD--SFT_minor_method-blue?logo=github)](https://github.com/Sunliu36/Behavior1KChallenge_minor_Solution_by_SHAWN)
 [![License](https://img.shields.io/badge/License-Apache_2.0-lightgrey)](LICENSE)
