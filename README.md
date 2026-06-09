@@ -138,9 +138,13 @@ B1K_1st_with_2nd/
 │   │       ├── pose_perturbator.py  # ± 15 cm / ± 15° pose noise
 │   │       └── wrappers/
 │   └── task_checkpoint_mapping.json # task → checkpoint routing
-├── auto_*.sh / launch_*.sh          # orchestration shell scripts
-├── collect_rft_data.py              # rollout-to-LeRobot collector
-└── run_*.sh                         # eval helpers
+├── patches/                         # diffs to reproduce our edits over upstream
+├── src/
+│   └── collect_rft_data.py          # rollout-to-LeRobot collector
+└── script/                          # orchestration + evaluation shell scripts
+    ├── auto_*.sh / launch_*.sh      # fine-tune orchestration
+    ├── finetune_*.sh                # per-checkpoint fine-tune drivers
+    └── run_*.sh                     # eval helpers
 ```
 
 The four RFT helpers live under [`/media/Pluto/Shawn/NTHU_Course_1142/b1k/rft/`](file:///media/Pluto/Shawn/NTHU_Course_1142/b1k/rft):
@@ -450,7 +454,7 @@ huggingface-cli download IliaLarchenko/behavior_submission \
     --local-dir /media/ML_2025/shawn/b1k/checkpoints
 
 # 2. Start the policy server (uses 1st-place ckpt2 by default)
-bash run_baseline_eval.sh                     # also starts server
+bash script/run_baseline_eval.sh              # also starts server
 
 # 3. Run the RFT pipeline for each target task
 for task_id in 1 7 18 21 27 29; do
@@ -458,7 +462,7 @@ for task_id in 1 7 18 21 27 29; do
 done
 
 # 4. Final evaluation across all target tasks
-bash run_all_evals.sh
+bash script/run_all_evals.sh
 ```
 
 The output `metrics/` JSONs aggregate into the headline table at the top of this README.

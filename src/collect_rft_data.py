@@ -2,7 +2,7 @@
 RFT Data Collection Script
 從 OmniGibson rollouts 收集成功軌跡，儲存為 LeRobot parquet 格式。
 用法:
-  python collect_rft_data.py \
+  python src/collect_rft_data.py \
     --task tidying_bedroom \
     --output /media/ML_2025/shawn/b1k/data/rft_data \
     --n_rollouts 50 \

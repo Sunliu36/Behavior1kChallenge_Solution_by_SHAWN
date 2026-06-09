@@ -16,13 +16,13 @@ log "Setup 完成，開始 $1 ..."
 
 case "$1" in
     gpu1)
-        bash "$PROJ/finetune_ckpt2.sh"
+        bash "$PROJ/script/finetune_ckpt2.sh"
         ;;
     gpu2)
-        bash "$PROJ/finetune_ckpt3_then_ckpt1.sh"
+        bash "$PROJ/script/finetune_ckpt3_then_ckpt1.sh"
         ;;
     baseline)
-        bash "$PROJ/run_baseline_eval.sh"
+        bash "$PROJ/script/run_baseline_eval.sh"
         ;;
     *)
         log "用法: $0 [gpu1|gpu2|baseline]"

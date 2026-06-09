@@ -49,12 +49,15 @@
 │   │   └── policies/
 │   │       └── b1k_policy.py      # ★ MODIFIED：wrist camera 缺失時 zero-fill
 │   └── task_checkpoint_mapping.json  # 任務→checkpoint 對應表
-├── launch_finetune.sh             # GPU2 啟動 fine-tune
-├── launch_finetune_gpu1.sh        # GPU1 啟動 fine-tune（備用）
-├── auto_post_finetune.sh          # FT 完成後自動更新 ckpt + eval（背景運行中）
-├── update_checkpoint_mapping.sh   # 更新 task_checkpoint_mapping.json + 重啟 policy server
-├── run_all_evals.sh               # 跑全部 6 tasks eval
-├── run_baseline_eval.sh           # 跑 baseline eval
+├── src/
+│   └── collect_rft_data.py        # rollout → LeRobot 收集器
+├── script/                        # 所有 orchestration / eval shell scripts
+│   ├── launch_finetune.sh         # GPU2 啟動 fine-tune
+│   ├── launch_finetune_gpu1.sh    # GPU1 啟動 fine-tune（備用）
+│   ├── auto_post_finetune.sh      # FT 完成後自動更新 ckpt + eval
+│   ├── update_checkpoint_mapping.sh # 更新 task_checkpoint_mapping.json + 重啟 policy server
+│   ├── run_all_evals.sh           # 跑全部 6 tasks eval
+│   └── run_baseline_eval.sh       # 跑 baseline eval
 └── PROJECT_STATUS.md              # 本文件
 
 /media/ML_2025/shawn/b1k/         # NAS 儲存（code/models/data）
@@ -103,8 +106,8 @@
 ### 自動後處理 Watcher
 - **PID**: 448112（`auto_post_finetune.sh`，背景運行中）
 - FT 完成後自動執行：
-  1. `bash update_checkpoint_mapping.sh ft_ckpt2` → 更新 mapping + 重啟 policy server
-  2. `bash run_all_evals.sh ft_eval 2` → 跑 6 tasks × 2 instances
+  1. `bash script/update_checkpoint_mapping.sh ft_ckpt2` → 更新 mapping + 重啟 policy server
+  2. `bash script/run_all_evals.sh ft_eval 2` → 跑 6 tasks × 2 instances
   3. 結果存到 `$PLUTO/outputs/ft_eval_*/metrics/`
 
 ---
@@ -218,23 +221,23 @@ rm -f "$PLUTO/logs/finetune_pid.txt"
 
 # 重啟
 cd /media/extra_home/huchch/shawn/DESKTOP/B1K_1st_with_2nd
-bash launch_finetune.sh ft_ckpt2_tasks1_7_18_21
+bash script/launch_finetune.sh ft_ckpt2_tasks1_7_18_21
 
 # 重啟 watcher
-nohup bash auto_post_finetune.sh > "$PLUTO/logs/auto_post_ft.log" 2>&1 &
+nohup bash script/auto_post_finetune.sh > "$PLUTO/logs/auto_post_ft.log" 2>&1 &
 ```
 
 ### 情境三：Fine-tuning 已完成，需要手動跑 eval
 ```bash
 WORK="/media/extra_home/huchch/shawn/DESKTOP/B1K_1st_with_2nd"
 # 更新 checkpoint mapping + 重啟 policy server
-bash "$WORK/update_checkpoint_mapping.sh" ft_ckpt2
+bash "$WORK/script/update_checkpoint_mapping.sh" ft_ckpt2
 
 # 等 policy server 啟動（約 60s）
 sleep 60
 
 # 跑全部 6 tasks eval（n_instances=2）
-bash "$WORK/run_all_evals.sh" ft_eval 2
+bash "$WORK/script/run_all_evals.sh" ft_eval 2
 
 # 查看結果
 python3 -c "
@@ -251,7 +254,7 @@ for f in sorted(glob.glob('/media/Pluto/Shawn/NTHU_Course_1142/b1k/outputs/ft_ev
 3. **Eval 環境**: `/media/Pluto/Shawn/NTHU_Course_1142/b1k/eval_venv_py310`（Python 3.10，OmniGibson eval 用）
 4. **GPU 限制**: 只用 GPU 1 和 GPU 2（GPU 0 是別人的）
 5. **HF cache**: 設到 Pluto（根磁碟 100% 滿）
-6. **重要的 env vars**（已寫在 `launch_finetune.sh`）：
+6. **重要的 env vars**（已寫在 `script/launch_finetune.sh`）：
    ```bash
    export CUDA_VISIBLE_DEVICES=2
    export XLA_PYTHON_CLIENT_PREALLOCATE=false

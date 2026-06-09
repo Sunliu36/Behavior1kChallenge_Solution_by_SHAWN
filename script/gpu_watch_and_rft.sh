@@ -139,7 +139,7 @@ fi
 # 步驟 C：Final Evaluation（10 trials on task1）
 # ════════════════════════════════════════════════════════════════════════
 log "=== 步驟 C: Final Evaluation（10 trials）==="
-bash "$WORK/../run_eval_task1.sh" "$FINETUNE_CKPT" "rft" 2>&1 | tee "$PLUTO/logs/final_eval.log"
+bash "$WORK/../script/run_eval_task1.sh" "$FINETUNE_CKPT" "rft" 2>&1 | tee "$PLUTO/logs/final_eval.log"
 
 log "=== 全部流程完成！結果見 $PLUTO/logs/all_results.txt ==="
 cat "$PLUTO/logs/all_results.txt" 2>/dev/null

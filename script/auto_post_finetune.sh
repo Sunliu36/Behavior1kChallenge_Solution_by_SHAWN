@@ -59,7 +59,7 @@ fi
 
 # Update checkpoint mapping and restart policy server
 echo "[$(date '+%H:%M:%S')] 更新 checkpoint mapping 並重啟 policy server..."
-bash "$WORK/update_checkpoint_mapping.sh" ft_ckpt2
+bash "$WORK/script/update_checkpoint_mapping.sh" ft_ckpt2
 if [ $? -ne 0 ]; then
     echo "ERROR: update_checkpoint_mapping.sh failed!"
     exit 1
@@ -76,7 +76,7 @@ fi
 
 # Run final eval for all 6 tasks
 echo "[$(date '+%H:%M:%S')] 開始 final eval (6 tasks × 2 instances)..."
-bash "$WORK/run_all_evals.sh" ft_eval 2 2>&1 | tee "$PLUTO/logs/final_eval_all_tasks.log"
+bash "$WORK/script/run_all_evals.sh" ft_eval 2 2>&1 | tee "$PLUTO/logs/final_eval_all_tasks.log"
 
 echo "[$(date '+%H:%M:%S')] === 全部完成 ==="
 echo "Fine-tune + Eval pipeline 已完成。"

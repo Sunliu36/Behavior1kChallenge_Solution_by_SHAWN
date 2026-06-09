@@ -31,7 +31,7 @@ pkill -f "serve_b1k.py" 2>/dev/null && echo "Policy server 已停止" || echo "P
 sleep 5
 
 echo "[$(date '+%H:%M:%S')] 啟動 fine-tuning: ft_ckpt2_tasks1_7_18_21"
-bash /media/extra_home/huchch/shawn/DESKTOP/B1K_1st_with_2nd/launch_finetune.sh ft_ckpt2_tasks1_7_18_21
+bash /media/extra_home/huchch/shawn/DESKTOP/B1K_1st_with_2nd/script/launch_finetune.sh ft_ckpt2_tasks1_7_18_21
 
 echo "[$(date '+%H:%M:%S')] Fine-tuning 已在背景啟動。"
 echo "監控: tail -f $PLUTO/logs/finetune_ft_ckpt2_tasks1_7_18_21.log"
