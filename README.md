@@ -2,6 +2,13 @@
 
 > A hybrid solution for the [2025 BEHAVIOR Challenge (NeurIPS 2025)](https://behavior.stanford.edu/challenge/) combining the **1st-place pre-trained backbone** (Pi0.5-based VLA from *Robot Learning Collective / IliaLarchenko*) with the **2nd-place post-training method** (RFT with stage-guided pose perturbation from *Comet / NVIDIA Research*).
 
+[![Technical Report](https://img.shields.io/badge/📄_Technical_Report-PDF-red)](assets/Shao-Yang_Liu_BEHAVIOR-1K_VLA_Adaptation.pdf)
+[![Eval Videos](https://img.shields.io/badge/🤗_Eval_Videos-results-green)](https://huggingface.co/datasets/MLfinal/behavior-1k-group29/tree/main/eval_results)
+[![Sibling Repo](https://img.shields.io/badge/Sibling_Repo-PCD--SFT_minor_method-blue?logo=github)](https://github.com/Sunliu36/Behavior1KChallenge_minor_Solution_by_SHAWN)
+[![License](https://img.shields.io/badge/License-Apache_2.0-lightgrey)](LICENSE)
+
+> A 1st-place-backbone, 2nd-place-RFT solution for BEHAVIOR-1K 2025 household tasks.
+
 ![Leaderboard comparison](assets/leaderboard.png)
 
 ![Results highlight](assets/results_highlight.png)
@@ -29,13 +36,24 @@ Evaluated on the official challenge test instances of 6 representative tasks:
 
 ---
 
-## Resources
+## Resources & related repositories
 
-* **📄 Technical report (PDF):** [`assets/Shao-Yang_Liu_BEHAVIOR-1K_VLA_Adaptation.pdf`](assets/Shao-Yang_Liu_BEHAVIOR-1K_VLA_Adaptation.pdf)
-  *Shao-Yang Liu — Adapting Vision-Language-Action Models for BEHAVIOR-1K Household Tasks (2026)*  Contact: <shawnliu@gapp.nthu.edu.tw>
-* **🎥 Result videos & metric dumps:**
-  [`MLfinal/behavior-1k-group29/eval_results`](https://huggingface.co/datasets/MLfinal/behavior-1k-group29/tree/main/eval_results) on HuggingFace
-  (per-task rollout mp4s + the original `metrics/*.json` files that produced the headline table)
+* 📄 **Technical report:** [`assets/Shao-Yang_Liu_BEHAVIOR-1K_VLA_Adaptation.pdf`](assets/Shao-Yang_Liu_BEHAVIOR-1K_VLA_Adaptation.pdf) — *Shao-Yang Liu — Adapting Vision-Language-Action Models for BEHAVIOR-1K Household Tasks (2026)*. Contact: <shawnliu@gapp.nthu.edu.tw>
+* 🎥 **Result videos & metric dumps:** [`MLfinal/behavior-1k-group29/eval_results`](https://huggingface.co/datasets/MLfinal/behavior-1k-group29/tree/main/eval_results) — per-task rollout mp4s + the original `metrics/*.json` files behind the headline table.
+
+### Sibling method — point-cloud SFT branch (minor method)
+
+Besides this main solution (1st-place backbone × 2nd-place RFT), we also explored a
+**point-cloud-augmented supervised fine-tuning** branch built on Pi0.5 — the
+second-checkpoint + point-cloud branch analysed in §6.1 of the technical report. Its
+code, model, and eval videos live in a separate repository:
+
+[![Repo](https://img.shields.io/badge/GitHub-Behavior1KChallenge__minor__Solution-blue?logo=github)](https://github.com/Sunliu36/Behavior1KChallenge_minor_Solution_by_SHAWN)
+[![Model](https://img.shields.io/badge/🤗_Model-pi05--pcd--sft--step10k-yellow)](https://huggingface.co/Shawn3636/pi05-pcd-sft-step10k)
+[![Eval Videos](https://img.shields.io/badge/🤗_Videos-eval__results-green)](https://huggingface.co/datasets/codyweilee/behavior-1k-baseline/tree/main/eval_results)
+[![License](https://img.shields.io/badge/License-Apache_2.0-lightgrey)](LICENSE)
+
+> A point-cloud-augmented supervised fine-tuning method built on Pi0.5 for the BEHAVIOR-1K 2025 Challenge.
 
 ---
 
